@@ -15,7 +15,7 @@ class BertExtractor:
         use_max_length: bool = False,
         max_length: int = 512,
         use_mean_pooling: bool = False,
-        show_progress: bool = True,
+        verbose: bool = True,
     ):
         self.model_ckpt = model_ckpt
         self.batch_size = batch_size
@@ -23,7 +23,7 @@ class BertExtractor:
         self.use_max_length = use_max_length
         self.max_length = max_length
         self.use_mean_pooling = use_mean_pooling
-        self.show_progress = show_progress
+        self.verbose = verbose
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.tokenizer, self.model = self._model()
@@ -75,23 +75,23 @@ class BertExtractor:
 
         return torch.cat(embs, dim=0).numpy().tolist()
 
-    def run(self, df: pd.DataFrame, text_column: str, output_col: str = "EMBEDDING") -> pd.DataFrame:
-        if text_column not in df.columns:
-            raise KeyError(f"{text_column} column not found in DataFrame.")
+    def run(self, df: pd.DataFrame, text_col: str, output_col: str = "EMBEDDING") -> pd.DataFrame:
+        if text_col not in df.columns:
+            raise KeyError(f"{text_col} column not found in DataFrame.")
 
         df = df.copy()
-        df[text_column] = df[text_column].fillna("").astype(str)
+        df[text_col] = df[text_col].fillna("").astype(str)
 
         n = len(df)
         parts = []
 
-        pbar = tqdm(total=n, desc="Embedding", unit="rows") if self.show_progress else None
+        pbar = tqdm(total=n, desc="Embedding", unit="rows") if self.verbose else None
 
         try:
             for start in range(0, n, self.chunk_size):
                 end = min(start + self.chunk_size, n)
                 temp = df.iloc[start:end].copy()
-                texts = temp[text_column].tolist()
+                texts = temp[text_col].tolist()
 
                 temp_embs = self._encode_batch(texts, progress=pbar)
                 assert len(temp_embs) == len(temp), "Embedding length mismatch."

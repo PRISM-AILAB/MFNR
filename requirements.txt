@@ -5,3 +5,4 @@ scikit-learn
 transformers
 torch
 torchvision
+pyarrow

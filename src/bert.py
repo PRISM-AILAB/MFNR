@@ -26,9 +26,9 @@ class BertExtractor:
         self.verbose = verbose
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.tokenizer, self.model = self._model()
+        self.tokenizer, self.model = self._load_model()
 
-    def _model(self):
+    def _load_model(self):
         tokenizer = AutoTokenizer.from_pretrained(self.model_ckpt)
         model = AutoModel.from_pretrained(self.model_ckpt).to(self.device)
         model.eval()

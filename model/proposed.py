@@ -1,24 +1,25 @@
+import os
 import numpy as np
+from tqdm import tqdm
 
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ===============================
 # Dataset
 # ===============================
 class MFNRDataset(Dataset):
-    def __init__(self, dataframe):
-        self.user_id = dataframe.user.values
-        self.item_id = dataframe.item.values
-        self.labels  = dataframe.rating.values.astype(np.float32)
+    def __init__(self, df):
+        self.user_id = df.user.values
+        self.item_id = df.item.values
+        self.labels  = df.rating.values.astype(np.float32)
 
-        self.user_bert    = torch.tensor(np.stack(dataframe.user_bert.to_list()), dtype=torch.float32)
-        self.item_bert    = torch.tensor(np.stack(dataframe.item_bert.to_list()), dtype=torch.float32)
-        self.user_roberta = torch.tensor(np.stack(dataframe.user_roberta.to_list()), dtype=torch.float32)
-        self.item_roberta = torch.tensor(np.stack(dataframe.item_roberta.to_list()), dtype=torch.float32)
+        self.user_bert    = torch.tensor(np.stack(df.user_bert.to_list()), dtype=torch.float32)
+        self.item_bert    = torch.tensor(np.stack(df.item_bert.to_list()), dtype=torch.float32)
+        self.user_roberta = torch.tensor(np.stack(df.user_roberta.to_list()), dtype=torch.float32)
+        self.item_roberta = torch.tensor(np.stack(df.item_roberta.to_list()), dtype=torch.float32)
 
     def __len__(self):
         return len(self.user_id)
@@ -34,6 +35,10 @@ class MFNRDataset(Dataset):
         i_r = self.item_roberta[idx]    
 
         return uid, iid, u_b, i_b, u_r, i_r, y
+
+def get_mfnr_loader(args, dataset_df, shuffle, num_workers):
+    dset = MFNRDataset(dataset_df)
+    return DataLoader(dset, batch_size=args.batch_size, shuffle=shuffle, num_workers=num_workers, drop_last=False)
 
 # ===============================
 # Model
@@ -66,10 +71,8 @@ class MFNR(nn.Module):
         self.item_emb = nn.Embedding(args.num_items, k)
 
         # text input + MLP
-        self.user_proj = nn.Linear(args.user_txt_dim, 512)
-        self.item_proj = nn.Linear(args.item_txt_dim, 512)
-        self.user_mlp  = _MLP(512, n_layer=4, p_drop=0.1)
-        self.item_mlp  = _MLP(512, n_layer=4, p_drop=0.1)
+        self.user_mlp  = _MLP(1536, n_layer=4, p_drop=0.1)
+        self.item_mlp  = _MLP(1536, n_layer=4, p_drop=0.1)
 
         # rating MLP
         rating_dim = k + self.user_mlp.out_dim + k + self.item_mlp.out_dim
@@ -90,8 +93,8 @@ class MFNR(nn.Module):
         i_txt = torch.concat([item_bert, item_roberta], dim=1)   
 
         # text MLP
-        u_txt = self.user_mlp(torch.relu(self.user_proj(u_txt)))
-        i_txt = self.item_mlp(torch.relu(self.item_proj(i_txt)))
+        u_txt = self.user_mlp(u_txt)
+        i_txt = self.item_mlp(i_txt)
 
         # rating MLP
         rep = torch.concat([u_e, u_txt, i_e, i_txt], dim=1)
@@ -99,3 +102,91 @@ class MFNR(nn.Module):
         h = self.rating_mlp(h)
         y = self.out(h)  
         return y
+    
+# ===============================
+# trainer
+# ===============================
+
+@torch.no_grad()
+def mfnr_evaluate(args, model, data_loader, criterion):
+    model.eval()
+    losses = 0.0
+    preds = []
+
+    for batch in data_loader:
+        batch = tuple(b.to(args.device, non_blocking=True) for b in batch)
+        inputs = {
+            'uid':          batch[0],
+            'iid':          batch[1],
+            'user_bert':    batch[2],
+            'item_bert':    batch[3],
+            'user_roberta': batch[4],
+            'item_roberta': batch[5],
+        }
+        gold_y = batch[6].unsqueeze(-1) if batch[6].dim() == 1 else batch[6]
+
+        pred_y = model(**inputs)
+        loss = criterion(pred_y, gold_y)
+
+        losses += loss.item()
+        preds.append(pred_y.detach().cpu())
+
+    losses /= len(data_loader)
+    preds = torch.concat(preds, dim=0)
+    return losses, preds
+    
+
+def mfnr_train(args, model, train_loader, valid_loader, optimizer, criterion):
+    train_losses, valid_losses = [], []
+    best_loss = float('inf')
+    patience = getattr(args, "patience", 5)
+    no_improve = 0
+
+    model.to(args.device)
+
+    for epoch in tqdm(range(1, args.num_epochs + 1)):
+        model.train()
+        tr_loss = 0.0
+
+        for batch in train_loader:
+            batch = tuple(b.to(args.device, non_blocking=True) for b in batch)
+            inputs = {
+                'uid':          batch[0],
+                'iid':          batch[1],
+                'user_bert':    batch[2],
+                'item_bert':    batch[3],
+                'user_roberta': batch[4],
+                'item_roberta': batch[5],
+            }
+            gold_y = batch[6].unsqueeze(-1) if batch[6].dim() == 1 else batch[6]
+
+            optimizer.zero_grad(set_to_none=True)
+            pred_y = model(**inputs)
+            loss = criterion(pred_y, gold_y)
+            loss.backward()
+            optimizer.step()
+
+            tr_loss += loss.item()
+
+        tr_loss /= len(train_loader)
+        train_losses.append(tr_loss)
+
+        val_loss, _ = mfnr_evaluate(args, model, valid_loader, criterion)
+        valid_losses.append(val_loss)
+
+        if epoch % 5 == 0:
+            print(f'Epoch: [{epoch}/{args.num_epochs}]  Train: {tr_loss:.5f}  Valid: {val_loss:.5f}')
+
+        if val_loss < best_loss:
+            best_loss = val_loss
+            no_improve = 0
+            if not os.path.exists(SAVE_PATH):
+                os.makedirs(SAVE_PATH)
+            torch.save(model.state_dict(), os.path.join(SAVE_PATH, f'{model._get_name()}_best.pt'))
+        else:
+            no_improve += 1
+            if no_improve >= patience:
+                print("Early stopping triggered.")
+                break
+
+    return {'train_loss': train_losses, 'valid_loss': valid_losses}

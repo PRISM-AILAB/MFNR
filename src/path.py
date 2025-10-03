@@ -7,3 +7,6 @@ PROCESSED_PATH = os.path.join(DATA_PATH, "processed")
 RAW_PATH = os.path.join(DATA_PATH, "raw")
 
 UTILS_PATH = os.path.join(BASE_PATH, "src")
+
+MODEL_PATH = os.path.join(BASE_PATH, "model")
+SAVE_MODEL_PATH = os.path.join(MODEL_PATH, "save")

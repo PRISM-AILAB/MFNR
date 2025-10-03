@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
+from src.path import SAVE_MODEL_PATH
 
 # ===============================
 # Dataset
@@ -36,8 +37,8 @@ class MFNRDataset(Dataset):
 
         return uid, iid, u_b, i_b, u_r, i_r, y
 
-def get_mfnr_loader(args, dataset_df, shuffle, num_workers):
-    dset = MFNRDataset(dataset_df)
+def get_data_loader(args, df, shuffle, num_workers):
+    dset = MFNRDataset(df)
     return DataLoader(dset, batch_size=args.batch_size, shuffle=shuffle, num_workers=num_workers, drop_last=False)
 
 # ===============================
@@ -75,7 +76,7 @@ class MFNR(nn.Module):
         self.item_mlp  = _MLP(1536, n_layer=4, p_drop=0.1)
 
         # rating MLP
-        rating_dim = k + self.user_mlp.out_dim + k + self.item_mlp.out_dim
+        rating_dim =  k * 2 + self.user_mlp.out_dim + self.item_mlp.out_dim
         self.pre_head = nn.Sequential(
             nn.Linear(rating_dim, 64),
             nn.ReLU()
@@ -180,9 +181,10 @@ def mfnr_train(args, model, train_loader, valid_loader, optimizer, criterion):
         if val_loss < best_loss:
             best_loss = val_loss
             no_improve = 0
-            if not os.path.exists(SAVE_PATH):
-                os.makedirs(SAVE_PATH)
-            torch.save(model.state_dict(), os.path.join(SAVE_PATH, f'{model._get_name()}_best.pt'))
+            if not os.path.exists(SAVE_MODEL_PATH):
+                os.makedirs(SAVE_MODEL_PATH)
+            SAVE_MODEL_FPATH = os.path.join(SAVE_MODEL_PATH, f'{model._get_name()}_best.pt')
+            torch.save(model.state_dict(), SAVE_MODEL_FPATH)
         else:
             no_improve += 1
             if no_improve >= patience:

@@ -38,8 +38,9 @@ class MFNRDataset(Dataset):
         return uid, iid, u_b, i_b, u_r, i_r, y
 
 def get_data_loader(args, df, shuffle, num_workers):
+    BATCH_SIZE = args.get("batch_size")
     dset = MFNRDataset(df)
-    return DataLoader(dset, batch_size=args.batch_size, shuffle=shuffle, num_workers=num_workers, drop_last=False)
+    return DataLoader(dset, batch_size=BATCH_SIZE, shuffle=shuffle, num_workers=num_workers, drop_last=False)
 
 # ===============================
 # Model
@@ -65,11 +66,13 @@ class _MLP(nn.Module):
 class MFNR(nn.Module):
     def __init__(self, args):
         super().__init__()
-        k = args.latent_dim
+        K = args.get("latent_dim")
+        NUM_USERS = args.get("num_users")
+        NUM_ITEMS = args.get("num_items")
 
         # ID embedding
-        self.user_emb = nn.Embedding(args.num_users, k)
-        self.item_emb = nn.Embedding(args.num_items, k)
+        self.user_emb = nn.Embedding(NUM_USERS, K)
+        self.item_emb = nn.Embedding(NUM_ITEMS, K)
 
         # text input + MLP
         self.user_mlp  = _MLP(1536, n_layer=4, p_drop=0.1)
@@ -110,12 +113,14 @@ class MFNR(nn.Module):
 
 @torch.no_grad()
 def mfnr_evaluate(args, model, data_loader, criterion):
+    DEVICE = args.get("device")
+
     model.eval()
     losses = 0.0
     preds = []
 
     for batch in data_loader:
-        batch = tuple(b.to(args.device, non_blocking=True) for b in batch)
+        batch = tuple(b.to(DEVICE, non_blocking=True) for b in batch)
         inputs = {
             'uid':          batch[0],
             'iid':          batch[1],
@@ -138,19 +143,22 @@ def mfnr_evaluate(args, model, data_loader, criterion):
     
 
 def mfnr_train(args, model, train_loader, valid_loader, optimizer, criterion):
+    DEVICE = args.get("device")
+    EPOCHS = args.get("num_epochs")
+
     train_losses, valid_losses = [], []
     best_loss = float('inf')
     patience = getattr(args, "patience", 5)
     no_improve = 0
 
-    model.to(args.device)
+    model.to(DEVICE)
 
-    for epoch in tqdm(range(1, args.num_epochs + 1)):
+    for epoch in tqdm(range(1, EPOCHS + 1)):
         model.train()
         tr_loss = 0.0
 
         for batch in train_loader:
-            batch = tuple(b.to(args.device, non_blocking=True) for b in batch)
+            batch = tuple(b.to(DEVICE, non_blocking=True) for b in batch)
             inputs = {
                 'uid':          batch[0],
                 'iid':          batch[1],
@@ -176,7 +184,7 @@ def mfnr_train(args, model, train_loader, valid_loader, optimizer, criterion):
         valid_losses.append(val_loss)
 
         if epoch % 5 == 0:
-            print(f'Epoch: [{epoch}/{args.num_epochs}]  Train: {tr_loss:.5f}  Valid: {val_loss:.5f}')
+            print(f'Epoch: [{epoch}/{EPOCHS}]  Train: {tr_loss:.5f}  Valid: {val_loss:.5f}')
 
         if val_loss < best_loss:
             best_loss = val_loss

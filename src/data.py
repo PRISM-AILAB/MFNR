@@ -4,7 +4,7 @@ import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 
-from src.path import RAW_PATH, PROCESSED_PATH
+from src.path import RAW_PATH
 from src.utils import getDF
 from src.bert import BertExtractor
 
@@ -18,7 +18,10 @@ class DataLoader:
         
         self.fname = fname
         self.source = source.lower()
+        self.val_size = 0.1
         self.test_size = test_size
+        if self.test_size <= self.val_size or self.test_size >= 1.0:
+            raise ValueError(f"`test_size` must be > {self.val_size} and < 1.0 (e.g., 0.2 or 0.3). Got {self.test_size}")
         
     
         self.batch_size = batch_size
@@ -31,7 +34,7 @@ class DataLoader:
         self.robert_extractor = self._load_bert_extractor(model_ckpt = "roberta-base")
 
         self.raw_df = self._data_loader()
-        self.train, self.test = self._data_preprocessor()
+        self.train, self.val, self.test = self._data_preprocessor()
 
     def _data_loader(self):
         if self.source == "amazon":
@@ -96,10 +99,11 @@ class DataLoader:
         joined_df = df.merge(user_agg_df, on = "user", how = "left")
         final_df = joined_df.merge(item_agg_df, on = "item", how = "left")
 
-        train, test = train_test_split(final_df, test_size=self.test_size, random_state=42)
-        train_fpath = os.path.join(PROCESSED_PATH, "train.parquet")
-        test_fpath = os.path.join(PROCESSED_PATH, "test.parquet")
-        train.to_parquet(train_fpath, engine = "pyarrow", index = False)
-        test.to_parquet(test_fpath, engine = "pyarrow", index = False)
+        val_test_size = (self.test_size - self.val_size) / self.test_size
+        train, val_test = train_test_split(final_df, test_size=self.test_size, random_state=42)
+        val, test = train_test_split(val_test, test_size=val_test_size, random_state=42)
 
-        return train, test
+        print(f"The shape of Train dataset: {train.shape}")
+        print(f"The shape of Validation dataset: {val.shape}")
+        print(f"The shape of Test dataset: {test.shape}")
+        return train, val, test

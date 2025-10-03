@@ -1,0 +1,24 @@
+seed: 42
+
+data:
+  fname: "data"
+  source: "amazon"          # ["amazon", "yelp"]
+  test_size: 0.2
+
+  batch_size: 8            
+  chunk_size: 2048
+  use_max_length: false
+  max_length: 512
+  use_mean_pooling: false
+  verbose: true
+
+args: # for Training
+  latent_dim: 64
+
+  batch_size: 64            
+  lr: 0.001
+  num_epochs: 100
+  patience: 5
+  num_workers: 4
+
+  device: "cuda"

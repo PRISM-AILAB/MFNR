@@ -3,6 +3,7 @@ import pandas as pd
 
 import torch
 import torch.nn as nn
+import torch.optim as optim
 
 from src.path import (
     PROCESSED_PATH, 
@@ -79,8 +80,17 @@ if __name__ == "__main__":
     # -------------------------------------------------------------------------
     model = MFNR(args).to(args.get("device"))
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr = args.get("lr")) # args 추가(다른 optimizer 추가)
 
+    OPTIMIZER = args.get("optimizer").lower()
+    if OPTIMIZER == "adam":
+        optimizer = optim.Adam(model.parameters(), lr = args.get("lr"))
+    elif OPTIMIZER == "adamw":
+        optimizer = optim.AdamW(model.parameters(), lr = args.get("lr"))
+    elif OPTIMIZER == "sgd":
+        optimizer = optim.SGD(model.parameters(), lr = args.get("lr"))
+    elif OPTIMIZER == "rmsprop": 
+        optimizer = optim.RMSprop(model.parameters(), lr = args.get("lr"))
+        
     # -------------------------------------------------------------------------
     # Training & Evaluation
     # -------------------------------------------------------------------------

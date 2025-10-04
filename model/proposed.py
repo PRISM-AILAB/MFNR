@@ -1,6 +1,5 @@
 import os
 import numpy as np
-from tqdm import tqdm
 
 import torch
 import torch.nn as nn
@@ -51,12 +50,13 @@ class _MLP(nn.Module):
         layers = []
         dim = first_dim
         for _ in range(n_layer):
+            next_dim = max(dim // 2, 1)  
             layers += [
-                nn.Linear(dim, dim), 
+                nn.Linear(dim, next_dim),  
                 nn.ReLU(), 
                 nn.Dropout(p_drop)
             ]
-            dim = max(dim // 2, 1)
+            dim = next_dim  
         self.net = nn.Sequential(*layers)
         self.out_dim = dim if n_layer > 0 else first_dim
 
@@ -118,6 +118,7 @@ def mfnr_evaluate(args, model, data_loader, criterion):
     model.eval()
     losses = 0.0
     preds = []
+    trues = []
 
     for batch in data_loader:
         batch = tuple(b.to(DEVICE, non_blocking=True) for b in batch)
@@ -136,24 +137,26 @@ def mfnr_evaluate(args, model, data_loader, criterion):
 
         losses += loss.item()
         preds.append(pred_y.detach().cpu())
+        trues.append(gold_y.detach().cpu())
 
     losses /= len(data_loader)
     preds = torch.concat(preds, dim=0)
-    return losses, preds
+    trues = torch.concat(trues, dim=0) 
+    return losses, preds, trues
     
 
 def mfnr_train(args, model, train_loader, valid_loader, optimizer, criterion):
     DEVICE = args.get("device")
     EPOCHS = args.get("num_epochs")
+    PATIENCE = args.get("patience")
 
     train_losses, valid_losses = [], []
     best_loss = float('inf')
-    patience = getattr(args, "patience", 5)
     no_improve = 0
 
     model.to(DEVICE)
 
-    for epoch in tqdm(range(1, EPOCHS + 1)):
+    for epoch in range(1, EPOCHS + 1):
         model.train()
         tr_loss = 0.0
 
@@ -180,7 +183,7 @@ def mfnr_train(args, model, train_loader, valid_loader, optimizer, criterion):
         tr_loss /= len(train_loader)
         train_losses.append(tr_loss)
 
-        val_loss, _ = mfnr_evaluate(args, model, valid_loader, criterion)
+        val_loss,_ ,_ = mfnr_evaluate(args, model, valid_loader, criterion)
         valid_losses.append(val_loss)
 
         if epoch % 5 == 0:
@@ -195,7 +198,7 @@ def mfnr_train(args, model, train_loader, valid_loader, optimizer, criterion):
             torch.save(model.state_dict(), SAVE_MODEL_FPATH)
         else:
             no_improve += 1
-            if no_improve >= patience:
+            if no_improve >= PATIENCE:
                 print("Early stopping triggered.")
                 break
 

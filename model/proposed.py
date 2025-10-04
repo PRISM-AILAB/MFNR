@@ -79,7 +79,7 @@ class MFNR(nn.Module):
         self.item_mlp  = _MLP(1536, n_layer=4, p_drop=0.1)
 
         # rating MLP
-        rating_dim =  k * 2 + self.user_mlp.out_dim + self.item_mlp.out_dim
+        rating_dim =  K * 2 + self.user_mlp.out_dim + self.item_mlp.out_dim
         self.pre_head = nn.Sequential(
             nn.Linear(rating_dim, 64),
             nn.ReLU()

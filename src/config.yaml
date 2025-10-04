@@ -13,6 +13,8 @@ data:
   verbose: true
 
 args: # for Training
+  optimizer: "adam"
+
   latent_dim: 64
 
   batch_size: 64            

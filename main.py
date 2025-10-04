@@ -1,4 +1,5 @@
 import os
+import pandas as pd
 
 import torch
 import torch.nn as nn
@@ -13,7 +14,8 @@ from src.utils import (
     save_parquet, 
     load_parquet, 
     load_yaml, 
-    set_seed
+    set_seed,
+    get_metrics
 )
 from model.proposed import (
     MFNR, 
@@ -64,8 +66,9 @@ if __name__ == "__main__":
         val = load_parquet(VAL_FPATH)
         test = load_parquet(TEST_FPATH)
 
-    args["num_users"] = int(train["user"].nunique())
-    args["num_items"] = int(train["item"].nunique())
+    total = pd.concat([train, val, test], axis = 0)
+    args["num_users"] = int(total["user"].nunique())
+    args["num_items"] = int(total["item"].nunique())
 
     train_loader = get_data_loader(args, train, shuffle=True, num_workers=4)
     val_loader = get_data_loader(args, val, shuffle=False, num_workers=4)
@@ -84,13 +87,15 @@ if __name__ == "__main__":
     hist = mfnr_train(args, model, train_loader, val_loader, optimizer, criterion)
 
     # load best model
-    BEST_MODEL_PATH = os.path.join(SAVE_MODEL_PATH, f"{model._get_name()}_bset.pt")
+    BEST_MODEL_PATH = os.path.join(SAVE_MODEL_PATH, f"{model._get_name()}_best.pt")
     if not os.path.exists(BEST_MODEL_PATH):
         raise FileNotFoundError(f"Best model not found at: {BEST_MODEL_PATH}")
     
     model.load_state_dict(torch.load(BEST_MODEL_PATH, map_location=args.get("device")))
-    test_loss, test_preds = mfnr_evaluate(args, model, test_loader, criterion)
-    print(f"[TEST] loss={test_loss:.5f}")
+    test_loss, test_preds, test_trues = mfnr_evaluate(args, model, test_loader, criterion)
+    mse, rmse, mae, mape = get_metrics(test_preds, test_trues)
+    print(f"[TEST] RMSE={rmse:.5f}  MSE={mse:.5f}  MAE={mae:.5f}  MAPE={mape:.3f}%")
+
 
 
 

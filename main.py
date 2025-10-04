@@ -49,11 +49,12 @@ if __name__ == "__main__":
     # -------------------------------------------------------------------------
     os.makedirs(PROCESSED_PATH, exist_ok=True)
     processed_data_list = set(os.listdir(PROCESSED_PATH))
-    TRAIN_FPATH = os.path.join(PROCESSED_PATH, "train.parquet")
-    VAL_FPATH = os.path.join(PROCESSED_PATH, "val.parquet")
-    TEST_FPATH = os.path.join(PROCESSED_PATH, "test.parquet")
+    FNAME = dargs.get("fname")
+    TRAIN_FPATH = os.path.join(PROCESSED_PATH, f"{FNAME}_train.parquet")
+    VAL_FPATH = os.path.join(PROCESSED_PATH, f"{FNAME}_val.parquet")
+    TEST_FPATH = os.path.join(PROCESSED_PATH, f"{FNAME}_test.parquet")
 
-    if {"train.parquet", "val.parquet", "test.parquet"} - processed_data_list:
+    if {f"{FNAME}_train.parquet", f"{FNAME}_val.parquet", f"{FNAME}_test.parquet"} - processed_data_list:
         dcfg = cfg["data"]
         data_loader = DataLoader(**dargs)
         train, val, test = data_loader.train, data_loader.val, data_loader.test

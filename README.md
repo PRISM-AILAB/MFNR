@@ -148,8 +148,7 @@ If you find this work useful in your research, please cite our paper:
 
 For questions, collaborations, or feedback, please contact:  
 **Qinglong Li (이청용)**  
-Assistant Professor, Department of Computer Engineering
-Hansung University  
+Assistant Professor, Division of Computer Engineering, Hansung University  
 Email: [leecy@hansung.ac.kr](mailto:leecy@hansung.ac.kr)
 
 _Last updated: **October 2025**_

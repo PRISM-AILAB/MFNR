@@ -21,8 +21,8 @@ from src.utils import (
 from model.proposed import (
     MFNR, 
     get_data_loader, 
-    mfnr_train, 
-    mfnr_evaluate
+    mfnr_trainer, 
+    mfnr_tester
 )
 
 if __name__ == "__main__":
@@ -33,6 +33,7 @@ if __name__ == "__main__":
     cfg = load_yaml(CONFIG_FPATH)
     dargs = cfg.get("data")
     args = cfg.get("args")
+    args["fname"] = dargs.get("fname")
 
     req_dev  = args.get("device")
     if req_dev == "cuda" and not torch.cuda.is_available():
@@ -55,7 +56,6 @@ if __name__ == "__main__":
     TEST_FPATH = os.path.join(PROCESSED_PATH, f"{FNAME}_test.parquet")
 
     if {f"{FNAME}_train.parquet", f"{FNAME}_val.parquet", f"{FNAME}_test.parquet"} - processed_data_list:
-        dcfg = cfg["data"]
         data_loader = DataLoader(**dargs)
         train, val, test = data_loader.train, data_loader.val, data_loader.test
 
@@ -95,15 +95,15 @@ if __name__ == "__main__":
     # -------------------------------------------------------------------------
     # Training & Evaluation
     # -------------------------------------------------------------------------
-    hist = mfnr_train(args, model, train_loader, val_loader, optimizer, criterion)
+    hist = mfnr_trainer(args, model, train_loader, val_loader, optimizer, criterion)
 
     # load best model
-    BEST_MODEL_PATH = os.path.join(SAVE_MODEL_PATH, f"{model._get_name()}_best.pt")
-    if not os.path.exists(BEST_MODEL_PATH):
-        raise FileNotFoundError(f"Best model not found at: {BEST_MODEL_PATH}")
+    BEST_MODEL_FPATH = os.path.join(SAVE_MODEL_PATH, f"{FNAME}_Best_Model.pth")
+    if not os.path.exists(BEST_MODEL_FPATH):
+        raise FileNotFoundError(f"Best model not found at: {BEST_MODEL_FPATH}")
     
-    model.load_state_dict(torch.load(BEST_MODEL_PATH, map_location=args.get("device")))
-    test_loss, test_preds, test_trues = mfnr_evaluate(args, model, test_loader, criterion)
+    model.load_state_dict(torch.load(BEST_MODEL_FPATH, map_location=args.get("device")))
+    test_preds, test_trues = mfnr_tester(args, model, test_loader)
     mse, rmse, mae, mape = get_metrics(test_preds, test_trues)
     print(f"[TEST] RMSE={rmse:.5f}  MSE={mse:.5f}  MAE={mae:.5f}  MAPE={mape:.3f}%")
 

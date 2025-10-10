@@ -1,5 +1,6 @@
 import os
 import numpy as np
+from tqdm import tqdm
 
 import torch
 import torch.nn as nn
@@ -27,7 +28,7 @@ class MFNRDataset(Dataset):
     def __getitem__(self, idx):
         uid = torch.tensor(self.user_id[idx], dtype=torch.long)   
         iid = torch.tensor(self.item_id[idx], dtype=torch.long)
-        y   = torch.tensor(self.labels[idx], dtype=torch.float32)
+        y   = torch.tensor(self.labels[idx], dtype=torch.float32).unsqueeze(-1)
 
         u_b = self.user_bert[idx]       
         i_b = self.item_bert[idx]      
@@ -80,11 +81,7 @@ class MFNR(nn.Module):
 
         # rating MLP
         rating_dim =  K * 2 + self.user_mlp.out_dim + self.item_mlp.out_dim
-        self.pre_head = nn.Sequential(
-            nn.Linear(rating_dim, 64),
-            nn.ReLU()
-        )
-        self.rating_mlp = _MLP(64, n_layer=3, p_drop=0.1)
+        self.rating_mlp = _MLP(rating_dim, n_layer=3, p_drop=0.1)
         self.out = nn.Linear(self.rating_mlp.out_dim, 1)
 
     def forward(self, uid, iid, user_bert, item_bert, user_roberta, item_roberta):
@@ -101,105 +98,123 @@ class MFNR(nn.Module):
         i_txt = self.item_mlp(i_txt)
 
         # rating MLP
-        rep = torch.concat([u_e, u_txt, i_e, i_txt], dim=1)
-        h = self.pre_head(rep)
-        h = self.rating_mlp(h)
-        y = self.out(h)  
+        x = torch.concat([u_e, u_txt, i_e, i_txt], dim=1)
+        x = self.rating_mlp(x)
+        y = self.out(x)  
         return y
     
 # ===============================
 # trainer
 # ===============================
+def mfnr_trainer(args, model, train_loader, valid_loader, optimizer, criterion):
+    """
+    Trainer with tqdm bars & best checkpoint.
+    Expects each batch as:
+      (uid, iid, user_bert, item_bert, user_roberta, item_roberta, outputs)
+    """
+    FNAME  = args.get("fname")
+    DEVICE = args.get("device", "cuda" if torch.cuda.is_available() else "cpu")
+    EPOCHS = args.get("num_epochs", 10)
 
-@torch.no_grad()
-def mfnr_evaluate(args, model, data_loader, criterion):
-    DEVICE = args.get("device")
+    os.makedirs(SAVE_MODEL_PATH, exist_ok=True)
 
-    model.eval()
-    losses = 0.0
-    preds = []
-    trues = []
-
-    for batch in data_loader:
-        batch = tuple(b.to(DEVICE, non_blocking=True) for b in batch)
-        inputs = {
-            'uid':          batch[0],
-            'iid':          batch[1],
-            'user_bert':    batch[2],
-            'item_bert':    batch[3],
-            'user_roberta': batch[4],
-            'item_roberta': batch[5],
-        }
-        gold_y = batch[6].unsqueeze(-1) if batch[6].dim() == 1 else batch[6]
-
-        pred_y = model(**inputs)
-        loss = criterion(pred_y, gold_y)
-
-        losses += loss.item()
-        preds.append(pred_y.detach().cpu())
-        trues.append(gold_y.detach().cpu())
-
-    losses /= len(data_loader)
-    preds = torch.concat(preds, dim=0)
-    trues = torch.concat(trues, dim=0) 
-    return losses, preds, trues
-    
-
-def mfnr_train(args, model, train_loader, valid_loader, optimizer, criterion):
-    DEVICE = args.get("device")
-    EPOCHS = args.get("num_epochs")
-    PATIENCE = args.get("patience")
-
-    train_losses, valid_losses = [], []
-    best_loss = float('inf')
-    no_improve = 0
-
+    best_loss = float("inf")
     model.to(DEVICE)
 
     for epoch in range(1, EPOCHS + 1):
+        # ========== TRAIN ==========
         model.train()
-        tr_loss = 0.0
+        total_train_loss = 0.0
 
-        for batch in train_loader:
-            batch = tuple(b.to(DEVICE, non_blocking=True) for b in batch)
-            inputs = {
-                'uid':          batch[0],
-                'iid':          batch[1],
-                'user_bert':    batch[2],
-                'item_bert':    batch[3],
-                'user_roberta': batch[4],
-                'item_roberta': batch[5],
-            }
-            gold_y = batch[6].unsqueeze(-1) if batch[6].dim() == 1 else batch[6]
+        for batch in tqdm(train_loader, desc=f"[Epoch {epoch}] Training", leave=False):
+            (uid, iid,
+             user_bert, item_bert,
+             user_roberta, item_roberta,
+             outputs) = batch
 
-            optimizer.zero_grad(set_to_none=True)
-            pred_y = model(**inputs)
-            loss = criterion(pred_y, gold_y)
+            uid           = uid.to(DEVICE)
+            iid           = iid.to(DEVICE)
+            user_bert     = user_bert.to(DEVICE)
+            item_bert     = item_bert.to(DEVICE)
+            user_roberta  = user_roberta.to(DEVICE)
+            item_roberta  = item_roberta.to(DEVICE)
+            outputs       = outputs.to(DEVICE)
+
+            optimizer.zero_grad()
+            pred_y = model(uid, iid, user_bert, item_bert, user_roberta, item_roberta)
+            loss = criterion(pred_y, outputs)
             loss.backward()
             optimizer.step()
 
-            tr_loss += loss.item()
+            total_train_loss += loss.item()
 
-        tr_loss /= len(train_loader)
-        train_losses.append(tr_loss)
+        avg_train_loss = total_train_loss / max(1, len(train_loader))
 
-        val_loss,_ ,_ = mfnr_evaluate(args, model, valid_loader, criterion)
-        valid_losses.append(val_loss)
+        # ========== VALID ==========
+        model.eval()
+        total_val_loss = 0.0
+        with torch.no_grad():
+            for batch in tqdm(valid_loader, desc=f"[Epoch {epoch}] Validation", leave=False):
+                (uid, iid,
+                 user_bert, item_bert,
+                 user_roberta, item_roberta,
+                 outputs) = batch
 
-        if epoch % 5 == 0:
-            print(f'Epoch: [{epoch}/{EPOCHS}]  Train: {tr_loss:.5f}  Valid: {val_loss:.5f}')
+                uid           = uid.to(DEVICE)
+                iid           = iid.to(DEVICE)
+                user_bert     = user_bert.to(DEVICE)
+                item_bert     = item_bert.to(DEVICE)
+                user_roberta  = user_roberta.to(DEVICE)
+                item_roberta  = item_roberta.to(DEVICE)
+                outputs       = outputs.to(DEVICE)
 
-        if val_loss < best_loss:
-            best_loss = val_loss
-            no_improve = 0
-            if not os.path.exists(SAVE_MODEL_PATH):
-                os.makedirs(SAVE_MODEL_PATH)
-            SAVE_MODEL_FPATH = os.path.join(SAVE_MODEL_PATH, f'{model._get_name()}_best.pt')
-            torch.save(model.state_dict(), SAVE_MODEL_FPATH)
-        else:
-            no_improve += 1
-            if no_improve >= PATIENCE:
-                print("Early stopping triggered.")
-                break
+                pred_y = model(uid, iid, user_bert, item_bert, user_roberta, item_roberta)
+                val_loss = criterion(pred_y, outputs)
+                total_val_loss += val_loss.item()
 
-    return {'train_loss': train_losses, 'valid_loss': valid_losses}
+        avg_val_loss = total_val_loss / max(1, len(valid_loader))
+
+        # ========== SAVE BEST ==========
+        if avg_val_loss < best_loss:
+            best_loss = avg_val_loss
+            fpath = os.path.join(SAVE_MODEL_PATH, f"{FNAME}_Best_Model.pth")
+            torch.save(model.state_dict(), fpath)
+            print(f"New best model saved at Epoch {epoch} (Val Loss: {avg_val_loss:.4f})")
+
+        # ========== LOG ==========
+        print(f"[Epoch {epoch}] Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+
+
+def mfnr_tester(args, model, test_loader):
+    """
+    Tester returning numpy arrays (preds, trues).
+    Expects each batch as:
+      (uid, iid, user_bert, item_bert, user_roberta, item_roberta, outputs)
+    """
+    DEVICE = args.get("device", "cuda" if torch.cuda.is_available() else "cpu")
+    model.to(DEVICE).eval()
+
+    preds, trues = [], []
+
+    for batch in test_loader:
+        (uid, iid,
+         user_bert, item_bert,
+         user_roberta, item_roberta,
+         outputs) = batch
+
+        uid           = uid.to(DEVICE)
+        iid           = iid.to(DEVICE)
+        user_bert     = user_bert.to(DEVICE)
+        item_bert     = item_bert.to(DEVICE)
+        user_roberta  = user_roberta.to(DEVICE)
+        item_roberta  = item_roberta.to(DEVICE)
+        outputs       = outputs.to(DEVICE)
+
+        pred_y = model(uid, iid, user_bert, item_bert, user_roberta, item_roberta)
+
+        preds.append(pred_y.detach().cpu())
+        trues.append(outputs.detach().cpu())
+
+    preds = torch.cat(preds, dim=0).numpy()
+    trues = torch.cat(trues, dim=0).numpy()
+    return preds, trues

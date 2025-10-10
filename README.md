@@ -75,7 +75,7 @@ Set all training/data/model hyperparameters in src/config.yaml before running.
 ### Train and Evaluate the Model
 Run the training script with configuration file:
 ```bash
-python main.py 
+uv run main.py
 ```
 
 ## Experimental Results

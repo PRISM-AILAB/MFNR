@@ -8,19 +8,13 @@ This repository provides the official implementation of MFNR (Multi-Embedding Fu
 
 ## Requirements
 - Python 3.10
-- pandas==2.2.3
-- numpy==1.26.4
-- ipykernel==6.29.5
-- scikit-learn==1.5.2
-- transformers==4.44.2
-- torch==2.4.1
-- torchvision==0.19.1
-- pyarrow==17.0.0 
-
-Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+- pandas==2.3.3
+- numpy==2.2.6
+- scikit-learn==1.7.2
+- transformers==4.57.0
+- torch==2.8.0
+- torchvision==0.23.0
+- pyarrow==21.0.0
 
 ## Repository Structure
 
@@ -68,28 +62,20 @@ Both networks share the same architecture but focus on different perspectives. T
 ### Environment Setup
 Create a virtual environment and install all dependencies:
 ```bash
-conda create -n mfnr python=3.10
-conda activate mfnr
-pip install -r requirements.txt
+uv venv .venv -p [python version]
+uv pip install -r requirements.txt
 ```
 
 ### Data Preparation
-Place your dataset in the data/raw/ folder and preprocess it:
-```bash
-# Example: preprocess raw data and save to data/processed/
-python src/utils.py --mode preprocess
-```
+Place your dataset in the data/raw/ folder.
 
-### Train the Model
+### Configure (edit config.yaml)
+Set all training/data/model hyperparameters in src/config.yaml before running.
+
+### Train and Evaluate the Model
 Run the training script with configuration file:
 ```bash
-python main.py --config src/config.yaml --mode train
-```
-
-### Evaluate the Model
-After training, evaluate using the saved checkpoint:
-```bash
-python main.py --config src/config.yaml --mode test
+python main.py 
 ```
 
 ## Experimental Results
